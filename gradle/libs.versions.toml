@@ -1,0 +1,8 @@
+[versions]
+kotlin = "1.9.24"
+compose-bom = "2024.06.00"
+room = "2.6.1"
+
+[libraries]
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
