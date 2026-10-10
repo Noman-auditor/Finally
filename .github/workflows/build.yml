@@ -2,48 +2,60 @@ name: Build NORA TUNNEL
 
 on:
   push:
-    branches: [main, master, develop]
+  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 60
+    env:
+      SING_BOX_TAG: v1.14.2
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      # AGP 8.7.x needs JDK 17+. The "version-check" plugin error means this or Gradle was too old.
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      # Installs Gradle 8.7 itself, so the build works even without gradle-wrapper.jar
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # The repo has no gradle-wrapper.jar, so install Gradle directly (AGP 8.7.x needs Gradle >= 8.9).
+      - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: 8.11.1
 
-      - name: Build Debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace
-
-      # Release is optional: it must never block the debug APK upload
-      - name: Build Release APK
-        continue-on-error: true
-        env:
-          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: gradle --no-daemon assembleRelease --stacktrace
-
-      - name: Upload APK artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: actions/setup-go@v5
         with:
-          name: Nora-Tunnel-APKs
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: warn
-          retention-days: 30
+          go-version: stable
+          check-latest: true
+          cache: false
+
+      - name: Install Android SDK pieces
+        run: |
+          set -euo pipefail
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses >/dev/null || true
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+
+      # Building the real sing-box core takes several minutes, so cache the result.
+      - name: Cache libbox.aar
+        id: libbox-cache
+        uses: actions/cache@v4
+        with:
+          path: app/libs/libbox.aar
+          key: libbox-${{ env.SING_BOX_TAG }}-${{ hashFiles('scripts/build-libbox.sh') }}
+
+      - name: Build libbox.aar
+        if: steps.libbox-cache.outputs.cache-hit != 'true'
+        run: bash scripts/build-libbox.sh "$SING_BOX_TAG"
+
+      - name: Assemble debug APK
+        run: gradle assembleDebug --no-daemon --console=plain --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nora-tunnel-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
