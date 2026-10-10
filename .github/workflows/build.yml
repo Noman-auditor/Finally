@@ -52,7 +52,26 @@ jobs:
         run: bash scripts/build-libbox.sh "$SING_BOX_TAG"
 
       - name: Assemble debug APK
-        run: gradle assembleDebug --no-daemon --console=plain --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee gradle-build.log
+
+      # On failure, put just the compiler errors on the run's Summary page so they are easy to copy.
+      - name: Show compile errors
+        if: failure()
+        run: |
+          {
+            echo '### Compiler errors'
+            echo '```'
+            grep -E '^e: |error:|What went wrong' -A2 gradle-build.log | head -150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: gradle-build-log
+          path: gradle-build.log
 
       - uses: actions/upload-artifact@v4
         with:
