@@ -1,0 +1,95 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "org.jetbrains.kotlin.plugin.compose"
+}
+
+android {
+    namespace "com.nora.tunnel"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.nora.tunnel"
+        minSdk 29
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+        ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        buildConfig true
+        compose true
+    }
+
+    packagingOptions {
+        jniLibs { useLegacyPackaging true }
+        resources { excludes += ["/META-INF/*.kotlin_module", "META-INF/DEPENDENCIES", "META-INF/LICENSE*"] }
+    }
+
+    // Release signing comes from the environment so no key material lives in the repo.
+    // Without NORA_KEYSTORE the release APK is left unsigned instead of silently using the debug key.
+    signingConfigs {
+        release {
+            def keystore = System.getenv("NORA_KEYSTORE")
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv("NORA_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("NORA_KEY_ALIAS")
+                keyPassword System.getenv("NORA_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            if (System.getenv("NORA_KEYSTORE")) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation platform("androidx.compose:compose-bom:2024.12.01")
+    implementation "androidx.activity:activity-compose:1.10.0"
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.material:material-icons-extended"
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.7"
+    debugImplementation "androidx.compose.ui:ui-tooling"
+
+    // Real upstream sing-box core, compiled from SagerNet/sing-box with gomobile.
+    // Provides: VLESS (incl. XTLS-Reality), VMess, Trojan, Shadowsocks, Hysteria2, TUIC,
+    // WireGuard, plus the native TUN stack (gVisor) used by the VpnService.
+    implementation(name: "libbox", ext: "aar")
+}
+
+// Fail early with a clear message instead of dozens of "package io.nekohasekai.libbox does not exist" errors.
+tasks.matching { it.name == "preBuild" }.configureEach {
+    doFirst {
+        if (!file("libs/libbox.aar").exists()) {
+            throw new GradleException("app/libs/libbox.aar is missing. Run scripts/build-libbox.sh first.")
+        }
+    }
+}
